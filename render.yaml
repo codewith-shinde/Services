@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ai-mail-assistant
+    runtime: docker
+    plan: free
+    envVars:
+      - key: GMAIL_EMAIL
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: GOOGLE_CALENDAR_ICAL_URL
+        sync: false
