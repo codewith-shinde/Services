@@ -22,6 +22,42 @@ let state = {
 };
 
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+// ─── Custom Cursor ──────────────────────────────
+function initCustomCursor() {
+    const dot = $("#cursor-dot");
+    const blob = $("#cursor-blob");
+    if (!dot || !blob) return;
+
+    window.addEventListener("mousemove", (e) => {
+        const { clientX: x, clientY: y } = e;
+        dot.style.transform = `translate(${x}px, ${y}px)`;
+
+        // Blob follows with a slight delay naturally due to transition
+        blob.style.transform = `translate(${x}px, ${y}px)`;
+
+        // Magnetic effect for buttons
+        const target = e.target.closest(".btn, .notification-bell, .email-item, .cal-day");
+        if (target) {
+            blob.classList.add("active");
+            if (target.classList.contains("btn")) {
+                const rect = target.getBoundingClientRect();
+                const bx = rect.left + rect.width / 2;
+                const by = rect.top + rect.height / 2;
+                const distx = (x - bx) * 0.3;
+                const disty = (y - by) * 0.3;
+                target.style.transform = `translate(${distx}px, ${disty}px)`;
+            }
+        } else {
+            blob.classList.remove("active");
+            $$(".btn").forEach(b => b.style.transform = "");
+        }
+    });
+
+    document.addEventListener("mousedown", () => blob.style.transform += " scale(0.8)");
+    document.addEventListener("mouseup", () => blob.style.transform = blob.style.transform.replace(" scale(0.8)", ""));
+}
 
 // ─── API Calls ──────────────────────────────────
 async function api(endpoint) {
@@ -35,7 +71,7 @@ async function api(endpoint) {
 async function apiPost(endpoint, body = null) {
     try {
         const opts = { method: "POST" };
-        if (body) { opts.headers = {"Content-Type": "application/json"}; opts.body = JSON.stringify(body); }
+        if (body) { opts.headers = { "Content-Type": "application/json" }; opts.body = JSON.stringify(body); }
         const res = await fetch(endpoint, opts);
         return await res.json();
     } catch (err) { console.error(`API error (${endpoint}):`, err); return null; }
@@ -235,6 +271,13 @@ function renderSetupScreen() {
 }
 
 function renderDashboard() {
+    // Add staggered delay to cards
+    setTimeout(() => {
+        $$(".card").forEach((card, i) => {
+            card.style.animationDelay = `${i * 0.15}s`;
+        });
+    }, 10);
+
     return `
         <div class="digest-banner card glass">
             <div class="card-header">
@@ -306,13 +349,13 @@ function renderCalendarWidget() {
     const year = state.calYear;
     const month = state.calMonth;
     const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrev = new Date(year, month, 0).getDate();
 
-    const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
     const meetingDates = new Set();
     state.meetings.forEach(m => {
@@ -326,7 +369,7 @@ function renderCalendarWidget() {
         days += `<div class="cal-day other-month">${daysInPrev - i}</div>`;
     }
     for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+        const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
         const isToday = dateStr === todayStr;
         const isSelected = dateStr === state.calSelectedDate;
         const hasEvent = meetingDates.has(dateStr);
@@ -401,7 +444,7 @@ function renderDayPanel() {
 }
 
 function renderAddReminderForm(dateStr) {
-    const colors = ["#ffffff","#cccccc","#888888","#ff4444","#ffaa00","#666666"];
+    const colors = ["#ffffff", "#cccccc", "#888888", "#ff4444", "#ffaa00", "#666666"];
     return `
         <div class="add-reminder-form">
             <input type="text" id="rem-title" placeholder="Reminder title..." autofocus>
@@ -601,7 +644,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ─── Punch Tracker ──────────────────────────────
-const SHIFT_MINUTES = 9 * 60; // 9h shift (30m recess included)
+// ─── Punch Tracker ──────────────────────────────
 let punchInterval = null;
 
 function togglePunchPanel() {
@@ -610,76 +653,108 @@ function togglePunchPanel() {
 }
 
 function initPunchTracker() {
-    const saved = localStorage.getItem("punchInTime");
-    if (saved) {
-        restorePunch(saved);
+    const savedTime = localStorage.getItem("punchInTime");
+    const savedDuration = localStorage.getItem("shiftDuration");
+
+    if (savedDuration) {
+        const select = $("#shift-length-select");
+        if (select) select.value = savedDuration;
+        updateShiftSummary();
+    }
+
+    if (savedTime) {
+        restorePunch(savedTime);
     }
 }
 
-function setPunchIn() {
+function setNow() {
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     const input = $("#punch-time-input");
-    const val = input?.value;
-    if (!val) { input?.focus(); return; }
+    if (input) input.value = timeStr;
+}
 
-    localStorage.setItem("punchInTime", val);
-    restorePunch(val);
+function updateShiftSummary() {
+    const select = $("#shift-length-select");
+    const summary = $("#shift-config-summary");
+    if (!select || !summary) return;
+
+    const minutes = parseInt(select.value);
+    const hours = minutes / 60;
+    summary.textContent = `${hours}h shift (30m recess included)`;
+    localStorage.setItem("shiftDuration", select.value);
+}
+
+function setPunchIn() {
+    const timeInput = $("#punch-time-input");
+    const lengthSelect = $("#shift-length-select");
+
+    const timeVal = timeInput?.value;
+    const durationVal = lengthSelect?.value;
+
+    if (!timeVal) { timeInput?.focus(); return; }
+
+    localStorage.setItem("punchInTime", timeVal);
+    localStorage.setItem("shiftDuration", durationVal);
+
+    restorePunch(timeVal);
 }
 
 function restorePunch(timeStr) {
+    const duration = parseInt(localStorage.getItem("shiftDuration") || "540");
     const [h, m] = timeStr.split(":").map(Number);
     const now = new Date();
     const punchIn = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
-    const punchOut = new Date(punchIn.getTime() + SHIFT_MINUTES * 60000);
+    const punchOut = new Date(punchIn.getTime() + duration * 60000);
 
-    // Update input field
+    // Update UI elements
     const input = $("#punch-time-input");
     if (input) input.value = timeStr;
 
-    // Update header label
+    const select = $("#shift-length-select");
+    if (select) select.value = duration.toString();
+
+    updateShiftSummary();
+
     const tracker = $("#punch-tracker");
     const label = $("#punch-label");
     if (tracker) tracker.classList.add("active");
 
-    // Format times
     const fmtTime = d => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const punchInFmt = fmtTime(punchIn);
     const punchOutFmt = fmtTime(punchOut);
 
-    // Update button
     const btn = $("#punch-set-btn");
-    if (btn) { btn.textContent = "Update Punch In"; }
+    if (btn) btn.textContent = "Sync Shift";
 
-    // Show result
     const result = $("#punch-result");
     if (result) {
         result.classList.add("visible");
         result.innerHTML = `
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                 <div class="punch-info-card">
-                    <div class="punch-info-label">Punch In</div>
+                    <div class="punch-info-label">Started</div>
                     <div class="punch-info-value">${punchInFmt}</div>
                 </div>
                 <div class="punch-info-card">
-                    <div class="punch-info-label">Punch Out</div>
+                    <div class="punch-info-label">Ending</div>
                     <div class="punch-info-value">${punchOutFmt}</div>
-                    <div class="punch-info-sub">After ${Math.floor(SHIFT_MINUTES/60)}h ${SHIFT_MINUTES%60}m</div>
+                    <div class="punch-info-sub">Total Duration: ${duration / 60}h</div>
                 </div>
             </div>
             <div class="punch-countdown" id="punch-countdown">
                 <div class="countdown-label">Time Remaining</div>
                 <div class="countdown-time" id="punch-countdown-time">--:--:--</div>
             </div>
-            <button class="punch-clear-btn" onclick="clearPunch()">Clear Punch</button>
+            <button class="punch-clear-btn" onclick="clearPunch()">Reset Tracker</button>
         `;
     }
 
-    // Start live countdown
     if (punchInterval) clearInterval(punchInterval);
     updatePunchCountdown(punchOut);
     punchInterval = setInterval(() => updatePunchCountdown(punchOut), 1000);
 
-    // Update header label with punchout time
-    if (label) label.textContent = `Out: ${punchOutFmt}`;
+    if (label) label.textContent = `Finish: ${punchOutFmt}`;
 }
 
 function updatePunchCountdown(punchOut) {
@@ -695,7 +770,7 @@ function updatePunchCountdown(punchOut) {
         const oh = Math.floor(over / 3600000);
         const om = Math.floor((over % 3600000) / 60000);
         const os = Math.floor((over % 60000) / 1000);
-        el.textContent = `+${String(oh).padStart(2,"0")}:${String(om).padStart(2,"0")}:${String(os).padStart(2,"0")}`;
+        el.textContent = `+${String(oh).padStart(2, "0")}:${String(om).padStart(2, "0")}:${String(os).padStart(2, "0")}`;
         if (container) {
             container.classList.add("overtime");
             const lbl = container.querySelector(".countdown-label");
@@ -705,7 +780,7 @@ function updatePunchCountdown(punchOut) {
         const rh = Math.floor(diff / 3600000);
         const rm = Math.floor((diff % 3600000) / 60000);
         const rs = Math.floor((diff % 60000) / 1000);
-        el.textContent = `${String(rh).padStart(2,"0")}:${String(rm).padStart(2,"0")}:${String(rs).padStart(2,"0")}`;
+        el.textContent = `${String(rh).padStart(2, "0")}:${String(rm).padStart(2, "0")}:${String(rs).padStart(2, "0")}`;
         if (container) {
             container.classList.remove("overtime");
             const lbl = container.querySelector(".countdown-label");
@@ -739,6 +814,7 @@ document.addEventListener("click", (e) => {
 
 // ─── Init ───────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
+    initCustomCursor();
     initPunchTracker();
     await checkAuth();
     fullRender();
